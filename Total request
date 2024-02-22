@@ -1,0 +1,10 @@
+sum by (request_rate(istio_operation)(
+  _io: service_server_request._count {
+    monitored_resource="k8s_container",
+    resource_labels:"$apps-ic-ca-prd-8a8e",
+    location:"northamerica-northeast1",
+    cluster_name:"asa-drew-gke-can-prd",
+    namespace_name:"icsaas-prod",
+    metadata_system_top_level_controller_name:"workload.value"
+  }
+  [DAY("${timestamp}", -1)])

@@ -1,0 +1,14 @@
+5. Deployment Jenkins Logs Checked:
+
+Reviewed Jenkins pipeline console logs to identify any potential issues that might have been missed.
+Found no suspicious activity in the logs.
+6. Zombie Process Check:
+
+Verified for zombie processes on all EC2 instances (primary, on-demand, and replica) through SSH connections.
+No zombie processes were detected.
+7. Monitoring and Alerting:
+
+Checked Datadog alerts for application downtime or failing test cases during the reported period.
+Analyzed Appdynamics data for any unusual application behavior.
+Reviewed AWS email alerts for new instance creation during the reported timeframe.
+No anomalous activity found through any of these monitoring tools.

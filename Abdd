@@ -1,0 +1,19 @@
+1. Logs Checked:
+
+Reviewed on-demand, primary, and replica logs.
+Cross-checked deployment creation time between on-demand and replica instances.
+Analyzed pre- and post-VPC migration logs in detail.
+Verified startup logs.
+2. Primary Instance Count:
+
+Confirmed only one primary instance exists and is shared between UAT and production environments.
+3. Configuration Re-checked:
+
+Cross-verified configuration using the revision task JSON file.
+Validated connectivity between on-demand and primary instances.
+Ensured proper configuration of all load balancers.
+4. Downtime Check (February 2, 2024):
+
+Investigated Appdynamics and AWS CloudWatch for downtime reports.
+Monitored CPU and memory utilization.
+Confirmed no downtime observed during the specified period.

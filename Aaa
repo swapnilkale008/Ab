@@ -1,0 +1,395 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.name }}
+  labels:
+    app: {{ .Values.name }}
+    appVersion: {{ .Values.appVersion }}
+    component: {{ .Values.metadata.labels.component }}
+    environment: {{ .Values.metadata.labels.environment }}
+    owner: {{ .Values.metadata.labels.owner }}
+    state: {{ .Values.metadata.labels.state }}
+    tier: {{ .Values.metadata.labels.tier }}
+    supportemail: {{ .Values.metadata.labels.supportemail }}
+    projectalias: {{ .Values.metadata.labels.projectalias }}
+    byolsoftware: {{ .Values.metadata.labels.byolsoftware }}
+    businessunit: {{ .Values.metadata.labels.businessunit }}
+    application: {{ .Values.metadata.labels.application }}
+    compliancedomain: {{ .Values.metadata.labels.compliancedomain }}
+    region: {{ .Values.metadata.labels.region }}
+    os_support_owner: {{ .Values.metadata.labels.os_support_owner }}
+    application_support_owner: {{ .Values.metadata.labels.application_support_owner }}
+    business_service: {{ .Values.metadata.labels.business_service }}
+    alliance: {{ .Values.metadata.labels.alliance }}
+    provisionedby: {{ .Values.metadata.labels.provisionedby }}
+    version: {{ .Values.metadata.labels.version }}
+    name: {{ .Values.metadata.labels.name }}
+    data_class: {{ .Values.metadata.labels.data_class }}
+    division: "{{ .Values.metadata.labels.division }}"
+    cost_center: "{{ .Values.metadata.labels.cost_center }}"
+    cmdb_bus_svc_id: {{ .Values.metadata.labels.cmdb_bus_svc_id }}
+spec:
+  selector:
+    matchLabels:
+      {{- if ne .Values.metadata.labels.environment "ci" }} # Blue: Conditional environment label
+      role: {{ .Values.deployment.podRole }} # Blue: Pod role
+      {{- end }}
+      app: {{ .Values.name }}
+  strategy:
+    type: Recreate
+  replicas: {{ .Values.deployment.replicas }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.name }}
+        appVersion: {{ .Values.appVersion }}
+        {{- if ne .Values.metadata.labels.environment "ci" }} # Blue: Conditional environment label
+        role: {{ .Values.deployment.podRole }} # Blue: Pod role
+        mode: {{ .Values.primaryModeLabel }}
+        {{- end }}
+        {{- if .Values.datadog.enabled }} # Blue: Datadog configuration
+        admission.datadoghq.com/config-mode: service
+        admission.datadoghq.com/enabled: "true"
+        tags.datadoghq.com/env: {{ .Values.datadog.env }}
+        tags.datadoghq.com/service: {{ .Values.datadog.service }}
+        tags.datadoghq.com/version: {{ .Values.appVersion }}
+        tags.datadoghq.com/alliance: {{ .Values.datadog.alliance }}
+        tags.datadoghq.com/application_support_owner: {{ .Values.datadog.support_owner }}
+        tags.datadoghq.com/business_application: {{ .Values.datadog.bus_bap_id }}
+        tags.datadoghq.com/business_application_name: {{ .Values.datadog.bus_application_name }}
+        tags.datadoghq.com/business_service: {{ .Values.datadog.bus_svc_id }}
+        tags.datadoghq.com/business_service_name: {{ .Values.datadog.bus_service_name }}
+        tags.datadoghq.com/os_support_owner: {{ .Values.datadog.support_owner }}
+        tags.datadoghq.com/page_out: "{{ .Values.datadog.page_out }}"
+        {{- end }}
+    annotations:
+      sidecar.istio.io/rewriteAppHTTPProbers: "true"
+      prometheus.io/port: '9191'
+      prometheus.io/scrape: "true"
+      {{- if or (ne .Values.deployment.replicanoissue "nil") }} # Blue: Conditional traffic exclusion
+      traffic.sidecar.istio.io/excludeInboundPorts: "8197,18197"
+      traffic.sidecar.istio.io/excludeOutboundPorts: "8197,18197"
+      {{- end }}
+      {{- if .Values.datadog.enabled }} # Blue: Datadog Java lib init container
+      admission.datadoghq.com/java-lib.custom-image: "gcr.io/iaas-gcr-reg-prd-ad3d/golden/datadog-lib-java-init:latest"
+      {{- end }}
+    spec:
+      serviceAccountName: {{ .Values.service.env.serviceAccountName }}
+      automountServiceAccountToken: true
+      {{- if .Values.securityContext.enabled }} # Blue: Security context
+      securityContext:
+        fsGroup: {{ .Values.securityContext.fsGroup }}
+      {{- end }}
+      initContainers:
+      {{- if .Values.volumePermissions.enabled }} # Blue: Volume permissions init container
+      - name: volume-permissions
+        image: {{ .Values.volumePermissions.imageSha }}
+        imagePullPolicy: {{ .Values.deployment.imagePullPolicy }}
+        command:
+        - /bin/sh
+        - -c
+        - chown -R {{ .Values.securityContext.runAsUser }}:{{ .Values.securityContext.fsGroup }} /var/opt/sl/data
+        securityContext:
+          runAsUser: 0
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        volumeMounts:
+        - name: {{ .Values.deployment.volumes.name }}
+          mountPath: "/var/opt/sl/data"
+      {{- end }}
+      containers:
+      - name: {{ .Values.name }}
+        image: {{ .Values.imageSha }}
+        imagePullPolicy: {{ .Values.deployment.imagePullPolicy }}
+        {{- if .Values.securityContext.enabled }} # Blue: Security context for container
+        securityContext:
+          runAsUser: {{ .Values.securityContext.runAsUser }}
+          runAsGroup: {{ .Values.securityContext.runAsGroup }}
+        {{- end }}
+        env:
+        - name: SL_INSTANCE_TYPE
+          value: {{ .Values.deployment.containers.env.instanceType }}
+        - name: SL_INIT
+          value: {{ .Values.deployment.containers.env.init }}
+        - name: SL_METRICS_ENABLED
+          value: "true"
+        - name: SL_METRICS_DECISION_EVALUATION
+          value: "true"
+        - name: SL_METRICS_DECISION_METRICS
+          value: "true"
+        - name: SL_ENCRYPTION_ALGORITHM
+          value: "AES"
+        - name: SL_ENCRYPTION_KEY_SIZE
+          value: "256"
+        {{- if .Values.deployment.containers.env.disableWebsockets }} # Blue: Websockets disable
+        - name: SL_DISABLE_SSE
+          value: "true"
+        - name: SL_DISABLE_WEBSOCKETS
+          value: "true"
+        {{- end }}
+        {{- if .Values.deployment.containers.env.contentSecurityPolicy }} # Blue: Content security policy
+        - name: SL_CONTENT_SECURITY_POLICY
+          value: "{{ .Values.deployment.containers.env.contentSecurityPolicy }}"
+        {{- end }}
+        - name: SMARTS_PRIMARY_HOST
+          value: "{{ .Values.deployment.containers.env.primaryHost }}"
+        - name: SMARTS_REPLICA_HOST
+          value: "{{ .Values.deployment.containers.env.replicaHost }}"
+        - name: RAVEN_Security_DoNotConsiderMemoryLockFailureAsCatastrophicError
+          value: "true"
+        - name: DD_APPSEC_ENABLED
+          value: "{{ .Values.deployment.containers.env.DD_APPSEC_ENABLED }}"
+        - name: DD_PROFILING_ENABLED
+          value: "{{ .Values.deployment.containers.env.DD_PROFILING_ENABLED }}"
+        - name: DD_PROFILING_ALLOCATION_ENABLED
+          value: "{{ .Values.deployment.containers.env.DD_PROFILING_ALLOCATION_ENABLED }}"
+        - name: DD_PROFILING_DDPROF_ENABLED
+          value: "{{ .Values.deployment.containers.env.DD_PROFILING_DDPROF_ENABLED }}"
+        - name: DD_PROFILING_DDPROF_CPU_ENABLED
+          value: "{{ .Values.deployment.containers.env.DD_PROFILING_DDPROF_CPU_ENABLED }}"
+        - name: DD_TRACE_HEADER_TAGS
+          value: "{{ .Values.deployment.containers.env.DD_TRACE_HEADER_TAGS }}"
+        - name: DD_LOGS_INJECTION
+          value: "{{ .Values.deployment.containers.env.DD_LOGS_INJECTION }}"
+        - name: DD_PROFILING_DIRECTALLOCATION_ENABLED
+          value: "{{ .Values.deployment.containers.env.DD_PROFILING_DIRECTALLOCATION_ENABLED }}"
+        - name: DD_PROFILING_HEAP_ENABLED
+          value: "{{ .Values.deployment.containers.env.DD_PROFILING_HEAP_ENABLED }}"
+        - name: vault_uri
+          value: "{{ .Values.deployment.containers.env.vault_uri }}"
+        - name: vault_role
+          value: "{{ .Values.deployment.containers.env.vault_role }}"
+        - name: vault_svc_id
+          value: "{{ .Values.deployment.containers.env.vault_svc_id }}"
+        - name: vault_proj_id
+          value: "{{ .Values.deployment.containers.env.vault_proj_id }}"
+        - name: vault_backend
+          value: "{{ .Values.deployment.containers.env.vault_backend }}"
+        - name: 551_cert_bucket_name
+          value: "{{ .Values.deployment.containers.env.551_cert_bucket_name }}"
+        - name: 551_cert_path
+          value: "{{ .Values.deployment.containers.env.ssl_cert_path }}"
+        - name: 551_cert_file_name
+          value: "{{ .Values.deployment.containers.env.ssl_cert_file_name }}"
+        - name: config_profile
+          value: "{{ .Values.deployment.containers.env.config_profile }}"
+        - name: HTTP_PROXY
+          value: "{{ .Values.deployment.containers.env.proxy }}"
+        - name: HTTPS_PROXY
+          value: "{{ .Values.deployment.containers.env.proxy }}"
+        - name: NO_PROXY
+          value: "{{ .Values.deployment.containers.env.noproxy }}"
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: {{ .Values.service.env.containerHttpsPort }}
+            scheme: HTTPS
+          initialDelaySeconds: {{ .Values.deployment.containers.env.livenessProbeDelaySeconds }}
+          periodSeconds: {{ .Values.deployment.containers.env.livenessProbePeriodSeconds | default 30 }}
+          timeoutSeconds: {{ .Values.deployment.containers.env.livenessProbeTimeoutSeconds | default 5 }}
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: {{ .Values.service.env.containerHttpsPort }}
+            scheme: HTTPS
+          initialDelaySeconds: {{ .Values.deployment.containers.env.readinessProbeDelaySeconds }}
+          periodSeconds: {{ .Values.deployment.containers.env.readinessProbePeriodSeconds | default 30 }}
+          timeoutSeconds: {{ .Values.deployment.containers.env.readinessProbeTimeoutSeconds | default 5 }}
+        ports:
+        - containerPort: {{ .Values.service.env.containerHttpsPort }}
+          name: {{ .Values.name }}
+          protocol: {{ .Values.service.env.protocolType }}
+        - containerPort: 9191
+          name: tcp-metrics
+          protocol: TCP
+        volumeMounts:
+        - name: {{ .Values.deployment.volumes.name }}
+          mountPath: "/var/opt/sl/data"
+        resources:
+          limits:
+            memory: {{ .Values.deployment.containers.resources.memoryLimit }}
+            cpu: {{ .Values.deployment.containers.resources.cpuLimit }}
+          requests:
+            memory: {{ .Values.deployment.containers.resources.memoryRequest }}
+            cpu: {{ .Values.deployment.containers.resources.cpuRequest }}
+        imagePullSecrets:
+        - name: {{ .Values.artifactId }}-secrets
+        {{- if .Values.sidecar.bluepen.enabled }} # Blue: Sidecar container
+        - name: bluepen-sidecar
+          image: {{ .Values.sidecar.bluepen.image }}
+          imagePullPolicy: {{ .Values.sidecar.bluepen.imagePullPolicy }}
+          env:
+            - name: BLUEPEN_CONFIG
+              value: "{{ .Values.sidecar.bluepen.config }}"
+          ports:
+            - containerPort: {{ .Values.sidecar.bluepen.port }}
+          volumeMounts:
+            - name: bluepen-sidecar-volume
+              mountPath: /sidecar
+        {{- end }}
+      nodeSelector:
+        kubernetes.io/os: linux
+      volumes:
+        - name: {{ .Values.deployment.volumes.name }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.deployment.volumes.claimName }}
+        {{- if .Values.sidecar.bluepen.enabled }} # Blue: Volume for sidecar
+        - name: bluepen-sidecar-volume
+          emptyDir: {}
+        {{- end }}
+
+
+
+
+------------
+# values.yml
+
+imageSha:
+
+appVersion: "™
+
+namespace: icsaas-qa
+
+gpServiceAccount: asa-drew-rules-npe-sa@apps-drw-icews-npe-03cd.iam.gserviceaccount.com
+
+metadata:
+  labels:
+    component: ic
+    environment: qa
+    owner: rules
+    state: active
+    tier: app
+    supportemail: DRW-dot-SegmentSREsAll-at-equifax-dot-com
+    projectalias: rules-editor-ui
+    byolsoftware: none
+    businessunit: us
+    application: rules-editor-ui
+    compliancedomain: none
+    region: us-east1
+    os_support_owner: none
+    application_support_owner: application-services-drw-sre-global
+    business_service: asa-drew-rules-rules-editor-ui-gop
+    alliance: application-services
+    provisionedby: terraform
+    version: ushuaia
+    name: rules-editor-ui
+
+data:
+  class: class-3
+  division: 0012
+  cost_center: 3213
+  cmdb_bus_svc_id: ASVE0030417
+
+virtualservice:
+  domain: ga.us-east1.icglobal.npe.gcp.efx
+  clusterIP: none
+  glb: na
+  prefix: /smarts
+  port: 443
+  deployment:
+    replicas: 1
+    imagepullpolicy: Always
+    metrics:
+      enabled: true
+    appId: 4D20BB55281A4851A70BD62CF0F453ED036C8104
+    proxy:
+      enabled: false
+    podRole:
+      repository: true
+    nodeAffinity:
+      enabled: true
+      availabilityZone: us-east1-d
+    volumes:
+      - name: rules-editor-ui-persistent-storage
+        claimName: rules-editor-ui-volume-claim-master
+        storageClassType: pd-ssd
+        storageClassName: rules-editor-storage-class-primary
+    containers:
+      - name: main-container
+        env:
+          instanceType: Primary
+          init: eyJhbGc101JSUBEtTOFFUCISInVuYyIGIKENTZDOKMESMMTILC3JHKiOiJKV101LC36aXA101JERUYIFO.N368-gL2CSN951250T8mZn4gbrlg
+          config_profile: qa
+          disableWebsockets: true
+          contentSecurityPolicy: "\"default-src 'self' *.icglobal.npe.gcp.efx;script-src 'self' 'unsafe-inline' https:;style-src *se"
+          vault_uri: "https://vault-uat.us.equifax.com:443"
+          vault_role: "asa-drew-icsaas-rules-connector-qa"
+          vault_proj_id: "apps-drw-icews-npe-03cd"
+          vault_svc_id: "asa-drew-gke-cluster-npe-sa@apps-drw-icews-npe-03cd.iam.gserviceaccount.com"
+          vault_backend: "kv/us/RCp/aa"
+          DD_LOGS_INJECTION: "false"
+          DD_APPSEC_ENABLED: "false"
+          _PROFILING_ENABLED: "true"
+          DD_PROFILING_ALLOCATION_ENABLED: "false"
+          DD_PROFILING_DDPROF_ENABLED: "false"
+          DD_PROFILING_DDPROF_CPU_ENABLED: "false"
+          DD_TRACE_HEADER_TAGS: "efx-client-correlation-id:efx-client-correlation-id, efx-sesion-id:efx-session"
+          DD_PROFILING_DIRECTALLOCATION_ENABLED: "false"
+          DD_PROFILING_HEAP_ENABLED: "false"
+          livenessProbeDelaySeconds: 180
+          readinessProbeDelaySeconds: 180
+          cert_bucket_name: common-storage-us-east1-apps-drw-icews-npe-03cd
+          cert_path: rules-editor/certs
+          cert_file_name: smarts.cert.pem
+        resources:
+          memoryLimit: 8Gi
+          memoryRequest: 5Gi
+          cpuLimit: 6
+          cpuRequest: 2
+    service:
+      env:
+        serviceAccountName: icsaas-qa-sa
+        clusterHttpsPort: 443
+        containerHttpsPort: 8443
+        containerPort: 8197
+        containerPort_18197: 18197
+        secureProtocol: https
+        protocolType: TCP
+    volumePermissions:
+      enabled: true
+    securityContext:
+      enabled: true
+      runAsUser: 1001
+      fsGroup: 1001
+      backup:
+        backupName: rules-editor-ui-backup
+        backupBucketName: common-storage-us-east1-apps-drw-icews-npe-03cd
+        backupPath: rules-editor/backups
+        activeDeadlineSeconds: 300
+        repositoryHost: https://rules-editor-ui
+        cronExpression: "0 0 * * *"
+        enabled: true
+
+# **Bluepen configuration** 
+bluepen:
+  enabled: true # **Added enable flag for bluepen**
+  image:
+    repository: <bluepen-image-repo> # **Specify the repository for bluepen**
+    tag: <bluepen-image-tag> # **Specify the tag for bluepen**
+  resources:
+    requests:
+      memory: "512Mi" # **Request memory for bluepen**
+      cpu: "200m" # **Request CPU for bluepen**
+    limits:
+      memory: "1Gi" # **Limit memory for bluepen**
+      cpu: "500m" # **Limit CPU for bluepen**
+
+# **Sidecar container configuration** 
+sidecar:
+  enabled: true # **Added enable flag for sidecar**
+  image:
+    repository: <sidecar-image-repo> # **Specify the repository for sidecar**
+    tag: <sidecar-image-tag> # **Specify the tag for sidecar**
+  resources:
+    requests:
+      memory: "256Mi" # **Request memory for sidecar**
+      cpu: "100m" # **Request CPU for sidecar**
+    limits:
+      memory: "512Mi" # **Limit memory for sidecar**
+      cpu: "200m" # **Limit CPU for sidecar**
+

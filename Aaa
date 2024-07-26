@@ -28,11 +28,26 @@ metadata:
     division: "{{ .Values.metadata.labels.division }}"
     cost_center: "{{ .Values.metadata.labels.cost_center }}"
     cmdb_bus_svc_id: {{ .Values.metadata.labels.cmdb_bus_svc_id }}
+  {{- if .Values.datadog.enabled }}
+    admission.datadoghq.com/config-mode: service
+    admission.datadoghq.com/enabled: "true"
+    tags.datadoghq.com/env: {{ .Values.datadog.env }}
+    tags.datadoghq.com/service: {{ .Values.datadog.service }}
+    tags.datadoghq.com/version: {{ .Values.appVersion }}
+    tags.datadoghq.com/alliance: {{ .Values.datadog.alliance }}
+    tags.datadoghq.com/application_support_owner: {{ .Values.datadog.support_owner }}
+    tags.datadoghq.com/business_application: {{ .Values.datadog.bus_bap_id }}
+    tags.datadoghq.com/business_application_name: {{ .Values.datadog.bus_application_name }}
+    tags.datadoghq.com/business_service: {{ .Values.datadog.bus_svc_id }}
+    tags.datadoghq.com/business_service_name: {{ .Values.datadog.bus_service_name }}
+    tags.datadoghq.com/os_support_owner: {{ .Values.datadog.support_owner }}
+    tags.datadoghq.com/page_out: "{{ .Values.datadog.page_out }}"
+  {{- end }}
 spec:
   selector:
     matchLabels:
-      {{- if ne .Values.metadata.labels.environment "ci" }} # Blue: Conditional environment label
-      role: {{ .Values.deployment.podRole }} # Blue: Pod role
+      {{- if ne .Values.metadata.labels.environment "ci" }}
+      role: {{ .Values.deployment.podRole }}
       {{- end }}
       app: {{ .Values.name }}
   strategy:
@@ -43,11 +58,11 @@ spec:
       labels:
         app: {{ .Values.name }}
         appVersion: {{ .Values.appVersion }}
-        {{- if ne .Values.metadata.labels.environment "ci" }} # Blue: Conditional environment label
-        role: {{ .Values.deployment.podRole }} # Blue: Pod role
+        {{- if ne .Values.metadata.labels.environment "ci" }}
+        role: {{ .Values.deployment.podRole }}
         mode: {{ .Values.primaryModeLabel }}
         {{- end }}
-        {{- if .Values.datadog.enabled }} # Blue: Datadog configuration
+      {{- if .Values.datadog.enabled }}
         admission.datadoghq.com/config-mode: service
         admission.datadoghq.com/enabled: "true"
         tags.datadoghq.com/env: {{ .Values.datadog.env }}
@@ -59,32 +74,31 @@ spec:
         tags.datadoghq.com/business_application_name: {{ .Values.datadog.bus_application_name }}
         tags.datadoghq.com/business_service: {{ .Values.datadog.bus_svc_id }}
         tags.datadoghq.com/business_service_name: {{ .Values.datadog.bus_service_name }}
-        tags.datadoghq.com/os_support_owner: {{ .Values.datadog.support_owner }}
-        tags.datadoghq.com/page_out: "{{ .Values.datadog.page_out }}"
-        {{- end }}
+      {{- end }}
       annotations:
         sidecar.istio.io/rewriteAppHTTPProbers: "true"
         prometheus.io/port: '9191'
         prometheus.io/scrape: "true"
-        {{- if or (ne .Values.deployment.replicanoissue "nil") }} # Blue: Conditional traffic exclusion
+        {{- if or (.Values.deployment.replicanoissue) (eq (.Values.deployment.replicanoissue | toString) "<nil>") }}
         traffic.sidecar.istio.io/excludeInboundPorts: "8197,18197"
         traffic.sidecar.istio.io/excludeOutboundPorts: "8197,18197"
         {{- end }}
-        {{- if .Values.datadog.enabled }} # Blue: Datadog Java lib init container
+        {{- if .Values.datadog.enabled }}
         admission.datadoghq.com/java-lib.custom-image: "gcr.io/iaas-gcr-reg-prd-ad3d/golden/datadog-lib-java-init:latest"
         {{- end }}
     spec:
+      hostname: rules-editor-ui
       serviceAccountName: {{ .Values.service.env.serviceAccountName }}
       automountServiceAccountToken: true
-      {{- if .Values.securityContext.enabled }} # Blue: Security context
+      {{- if .Values.securityContext.enabled }}
       securityContext:
         fsGroup: {{ .Values.securityContext.fsGroup }}
       {{- end }}
       initContainers:
-        {{- if .Values.volumePermissions.enabled }} # Blue: Volume permissions init container
+        {{- if .Values.volumePermissions.enabled }}
         - name: volume-permissions
-          image: {{ .Values.volumePermissions.imageSha }}
-          imagePullPolicy: {{ .Values.deployment.imagePullPolicy }}
+          image: {{ .Values.imageSha }}
+          imagePullPolicy: {{ .Values.deployment.imagepullpolicy }}
           command:
             - /bin/sh
             - -c
@@ -102,21 +116,126 @@ spec:
             - name: {{ .Values.deployment.volumes.name }}
               mountPath: "/var/opt/sl/data"
         {{- end }}
+      {{- if .Values.deployment.nodeAffinity.enabled }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+                - key: topology.kubernetes.io/zone
+                  operator: In
+                  values:
+                    - {{ .Values.deployment.nodeAffinity.availabilityZone }}
+      {{- end }}
+      {{- if or (.Values.deployment.nodepool) (eq (.Values.deployment.nodepool | toString) "<nil>") }}
+      tolerations:
+        - key: application
+          operator: Equal
+          value: smarts
+          effect: NoSchedule
+      {{- end }}
       containers:
         - name: {{ .Values.name }}
           image: {{ .Values.imageSha }}
-          imagePullPolicy: {{ .Values.deployment.imagePullPolicy }}
-          {{- if .Values.securityContext.enabled }} # Blue: Security context for container
+          imagePullPolicy: {{ .Values.deployment.imagepullpolicy }}
+          {{- if .Values.securityContext.enabled }}
           securityContext:
             runAsUser: {{ .Values.securityContext.runAsUser }}
-            runAsGroup: {{ .Values.securityContext.runAsGroup }
+            runAsGroup: {{ .Values.securityContext.runAsUser }}
+          {{- end }}
+          env:
+            - name: SL_INSTANCE_TYPE
+              value: {{ .Values.deployment.containers.env.instanceType }}
+            - name: SL_INIT
+              value: {{ .Values.deployment.containers.env.init }}
+            - name: SL_METRICS_ENABLED
+              value: "true"
+            - name: SL_METRICS_DECISION_EVALUATION
+              value: "true"
+            - name: SL_METRICS_DEPLOYMENT_MANAGER
+              value: "true"
+            - name: SL_METRICS_DECISION_METRICS
+              value: "true"
+            - name: SL_ENCRYPTION_ALGORITHM
+              value: "AES"
+            - name: SL_ENCRYPTION_KEY_SIZE
+              value: "256"
+            {{- if .Values.deployment.containers.env.disableWebsockets }}
+            - name: SL_DISABLE_SSE
+              value: "true"
+            - name: SL_DISABLE_WEBSOCKETS
+              value: "true"
+            {{- end }}
+            {{- if .Values.deployment.containers.env.contentSecurityPolicy }}
+            - name: SL_CONTENT_SECURITY_POLICY
+              value: {{ quote .Values.deployment.containers.env.contentSecurityPolicy }}
+            {{- end }}
+            - name: SMARTS_PRIMARY_HOST
+              value: "{{ .Values.deployment.containers.env.primaryHost }}"
+            - name: SMARTS_REPLICA_HOST
+              value: "{{ .Values.deployment.containers.env.replicaHost }}"
+            - name: RAVEN_Security_DoNotConsiderMemoryLockFailureAsCatastrophicError
+              value: "true"
+            - name: DD_APPSEC_ENABLED
+              value: "{{ .Values.deployment.containers.env.DD_APPSEC_ENABLED }}"
+            - name: DD_PROFILING_ENABLED
+              value: "{{ .Values.deployment.containers.env.DD_PROFILING_ENABLED }}"
+            - name: DD_PROFILING_ALLOCATION_ENABLED
+              value: "{{ .Values.deployment.containers.env.DD_PROFILING_ALLOCATION_ENABLED }}"
+            - name: DD_PROFILING_DDPROF_ENABLED
+              value: "{{ .Values.deployment.containers.env.DD_PROFILING_DDPROF_ENABLED }}"
+            - name: DD_PROFILING_ALLOCATION_LIMIT
+              value: "{{ .Values.deployment.containers.env.DD_PROFILING_ALLOCATION_LIMIT }}"
           volumeMounts:
             - name: {{ .Values.deployment.volumes.name }}
-              mountPath: "/var/opt/sl/data"
-        {{- if .Values.sidecar.enabled }} # Blue: Inserted sidecar container
-        - name: bluepen-sidecar
-          image: gcr.io/iaas-gcr-reg-prd-ad3d/appsvcs-drew/bluepen:vienna.8.2-python-3.11
-          imagePullPolicy: IfNotPresent
+              mountPath: /var/opt/sl/data
+          readinessProbe:
+            httpGet:
+              path: /v1/monitor/liveness
+              port: 8081
+            periodSeconds: 10
+            initialDelaySeconds: 20
+            timeoutSeconds: 2
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /v1/monitor/liveness
+              port: 8081
+            periodSeconds: 10
+            initialDelaySeconds: 20
+            timeoutSeconds: 2
+            failureThreshold: 5
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+            - containerPort: 8081
+              name: mgmt
+              protocol: TCP
+          {{- if .Values.deployment.containers.env.enableIstioPrometheus }}
+          volumeMounts:
+            - name: metrics-volume
+              mountPath: /etc/metrics
+          {{- end }}
+          resources:
+            {{- if .Values.deployment.containers.resources.requests }}
+            requests:
+              {{- toYaml .Values.deployment.containers.resources.requests | nindent 12 }}
+            {{- end }}
+            {{- if .Values.deployment.containers.resources.limits }}
+            limits:
+              {{- toYaml .Values.deployment.containers.resources.limits | nindent 12 }}
+            {{- end }}
+        {{- if .Values.bluepen.enabled }}
+        - name: bluepen
+          image: {{ .Values.bluepen.sidecar.image.repository }}:{{ .Values.bluepen.sidecar.image.tag }}
+          resources:
+            requests:
+              memory: {{ .Values.bluepen.sidecar.resources.requests.memory }}
+              cpu: {{ .Values.bluepen.sidecar.resources.requests.cpu }}
+            limits:
+              memory: {{ .Values.bluepen.sidecar.resources.limits.memory }}
+              cpu: {{ .Values.bluepen.sidecar.resources.limits.cpu }}
           volumeMounts:
             - name: {{ .Values.deployment.volumes.name }}
               mountPath: "/var/opt/sl/data"
@@ -124,36 +243,4 @@ spec:
       volumes:
         - name: {{ .Values.deployment.volumes.name }}
           persistentVolumeClaim:
-
-
-
-
-------
-
-
-containers:
-  # Main container
-  - name: main-container
-    # existing configuration
-    ...
-
-  # Bluepen sidecar container
-  {{- if .Values.bluepen.enabled }}
-  - name: bluepen
-    image: "{{ .Values.bluepen.image.repository }}:{{ .Values.bluepen.image.tag }}"
-    resources:
-      requests:
-        memory: "{{ .Values.bluepen.resources.requests.memory }}"
-        cpu: "{{ .Values.bluepen.resources.requests.cpu }}"
-      limits:
-        memory: "{{ .Values.bluepen.resources.limits.memory }}"
-        cpu: "{{ .Values.bluepen.resources.limits.cpu }}"
-    {{- if .Values.sidecar.volumeMounts }}
-    volumeMounts:
-      - name: {{ .Values.deployment.volumes.name }}
-        mountPath: "/var/opt/sl/data"
-    {{- end }}
-  {{- end }}
-
-
-            claimName: {{ .Values.deployment.volumes.persistentVolumeClaim.claimName }}
+            claimName: {{ .Values.deployment.volumes.claimName }}

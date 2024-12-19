@@ -1,0 +1,54 @@
+Here is your text corrected for grammar and spelling while retaining the original wording:
+
+---
+
+**Docum... / Smarts Regional PD-Dynamic Provisioning**  
+**UNPUBLISHED CHANGES**  
+
+1. **allowedTopologies** must be set.  
+2. The deployment has regional persistent disks of type `pd-standard` and `replication-type: regional-pd`. This means that volumes create a regional persistent disk. As mentioned in the documentation, the minimum capacity per disk for regional persistent disks is **200 GB**. We cannot create a regional PD with a lower GB requirement for a standard disk.  
+   So now the workaround is:  
+   - You can either create a PVC with a larger size or use `pd-ssd` instead.  
+
+If not, you will get the following error:  
+```
+Failed to provision volume with StorageClass "rules-editor-storage-class-primary-rpd": googleapi: Error 400:
+Invalid value for field 'resource.sizeGb': '32'. Disk size cannot be smaller than 200 GB., invalid
+```  
+
+**Reference**:  
+Create and manage regional disks | Compute Engine Documentation | Google Cloud  
+
+**Metrics:**  
+
+The metrics below show the data replication/synchronization status between two zones:  
+
+- **Synced**: The replica is available, synchronously receives all the writes performed to the disk, and is up to date with all the data on the disk.  
+- **CatchingUp**: The replica is available but is still catching up with the data on the disk from the other replica.  
+- **OutOfSync**: The replica is temporarily unavailable and out of sync with the data on the disk.  
+
+---
+
+Let me know if additional clarifications are needed!
+
+
+
+Sure! Here's the corrected version with grammar and spelling errors fixed, while keeping the wording unchanged:
+
+---
+
+Smarts uses PVC and storage for PD is zonal. When the zonal failure happens and primary or replica in that zone fails, Smarts UI or replica will have downtime, and users will be impacted until the zone is up. Recent UK heatwave issues caused Smarts UI to be down for almost 4 hours, which is more time for other regions to create a new PVC in another zone. Additionally, migrating the data from backup takes a lot of time and causes downtime for users.
+
+To achieve high availability of Smarts, the data has been replicated automatically to another PD where Smarts pods can get the data even if one zone fails. GCP provides a regional PD option with PVC high availability and data replicated to another zone every time when the transaction happens from UI, easily avoiding downtime.
+
+**Dynamic Provision:**
+
+To enable dynamic provisioning of regional persistent disks, create a StorageClass with the replication-type parameter, and specify zone constraints in allowedTopologies.  
+
+The following manifest describes a StorageClass named `rules-editor-storage-class-primary-rpd` that uses standard persistent disks and replicates data to the `us-east1-d` and `us-east1-c` zones:  
+
+One zone is the same as the zone that the Pod is scheduled in. The other zone is randomly picked from the zones available to the cluster and replicates the data.  
+
+--- 
+
+Let me know if you need further edits or clarification!

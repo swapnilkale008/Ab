@@ -1,0 +1,169 @@
+# GCP Memorystore Redis Guide
+
+## 1. System Overview
+
+### System Architecture
+- **Diagram:** [Insert system diagram here]
+- **Description:**
+  - User authenticates with the application.
+  - The application generates a token.
+  - The application stores the token in GCP Redis.
+  - The application uses the token to access downstream systems.
+  - Downstream systems validate the token (potentially by checking with the application or Redis).
+
+### GCP Redis Details
+- **GCP Project ID:** [Insert project ID]
+- **Redis Instance Name:** [Insert instance name]
+- **Region and Zone:** us-east1-b
+- **Redis Version:** 5.0 (Upgrade Available)
+- **Instance Tier:** Basic
+- **Instance Size:** 1 GB
+- **Configuration Parameters:** maxmemory-policy, tcp-keepalive
+- **Network Configuration:**
+  - VPC Network: apps-net-pe (efx-gcp-apps-svpc-npe-3af9)
+  - Connection Mode: Private Service Access
+- **Authentication Method:** AUTH Enabled
+- **SSL Configuration:** Disabled
+- **Security Features:**
+  - **In-Transit Encryption:** Enabled
+  - **CMEK (Customer-Managed Encryption Key):** Enabled
+
+#### Steps to Check Redis Details in GCP Console
+1. Log in to the [Google Cloud Console](https://console.cloud.google.com/).
+2. Navigate to **Memorystore** from the left-hand menu.
+3. Select **Redis** from the available options.
+4. Click on your Redis instance from the list.
+5. In the **Overview** tab, check instance details such as tier, region, zone, and status.
+6. Navigate to the **Configuration** tab to view instance settings like maxmemory-policy, authentication, and maintenance schedule.
+7. Check the **Monitoring** tab for performance metrics and resource usage.
+
+### Dependencies
+- **Systems that rely on Redis:** [List dependent systems]
+- **Impact of Redis Downtime:** [Describe the impact]
+
+## 2. Routine Maintenance
+
+### Checking Redis Status and Health
+#### Using gcloud CLI:
+- **List Redis instances:**
+  ```bash
+  gcloud redis instances list --project=<PROJECT_ID>
+  ```
+- **Get details of a specific Redis instance:**
+  ```bash
+  gcloud redis instances describe <INSTANCE_NAME> --region=us-east1 --project=<PROJECT_ID>
+  ```
+- **Check Redis connectivity:**
+  ```bash
+  redis-cli -h 100.124.1.139 -p 6379 -a <AUTH>
+  PING
+  ```
+
+### Monitoring Redis Performance
+#### Key Metrics:
+- **CPU Usage**: `gcloud redis instances describe <INSTANCE_NAME> --region=us-east1 --format='value(cpuUtilization)'`
+- **Memory Usage**: `gcloud redis instances describe <INSTANCE_NAME> --region=us-east1 --format='value(memoryUsage)'`
+- **Connected Clients**: `gcloud redis instances describe <INSTANCE_NAME> --region=us-east1 --format='value(connectedClients)'`
+
+#### Setting up Alerts in Cloud Monitoring:
+- **Create alert policy for high CPU usage:**
+  ```bash
+  gcloud monitoring policies create --display-name="High Redis CPU"   --conditions="metric.type=redis.googleapis.com/cpu/utilization, condition.threshold.value=0.8"   --notification-channels=<CHANNEL_ID> --project=<PROJECT_ID>
+  ```
+
+### Scaling Redis
+- **Scale up Redis instance:**
+  ```bash
+  gcloud redis instances update <INSTANCE_NAME> --region=us-east1 --size=<NEW_SIZE>
+  ```
+- **Modify Terraform Configuration:**
+  - Update `memory_size_gb` in `main.tf`:
+    ```hcl
+    resource "google_redis_instance" "default" {
+      name           = "<INSTANCE_NAME>"
+      tier           = "BASIC"
+      memory_size_gb = <NEW_SIZE>
+      region         = "us-east1"
+    }
+    ```
+  - Apply the changes:
+    ```bash
+    terraform init
+    terraform apply -auto-approve
+    ```
+
+### Backups
+- **Manually create a backup:**
+  ```bash
+  gcloud redis instances export <INSTANCE_NAME> gs://<BUCKET_NAME>/backup.rdb --region=us-east1
+  ```
+- **Restore from a backup:**
+  ```bash
+  gcloud redis instances import <INSTANCE_NAME> gs://<BUCKET_NAME>/backup.rdb --region=us-east1
+  ```
+
+### Security Updates
+- **Upgrade Redis version:**
+  ```bash
+  gcloud redis instances update <INSTANCE_NAME> --region=us-east1 --redis-version=6.0
+  ```
+- **Modify Terraform Configuration:**
+  ```hcl
+  resource "google_redis_instance" "default" {
+    name         = "<INSTANCE_NAME>"
+    redis_version = "6.0"
+  }
+  ```
+  - Apply changes:
+    ```bash
+    terraform apply -auto-approve
+    ```
+
+## 3. Troubleshooting
+
+### Steps to Check Redis in GCP Console
+1. Log in to the [Google Cloud Console](https://console.cloud.google.com/).
+2. Go to **Memorystore** > **Redis**.
+3. Select the Redis instance in question.
+4. Check the **Overview** tab for basic details and status.
+5. Navigate to **Configuration** for detailed settings.
+6. Visit **Monitoring** to analyze CPU, memory, and network statistics.
+
+### Common Issues and Resolutions
+#### High CPU Usage
+- **Check for long-running commands:**
+  ```bash
+  redis-cli -h 100.124.1.139 -p 6379 -a <AUTH> SLOWLOG GET 10
+  ```
+- **Identify hotkeys:**
+  ```bash
+  redis-cli -h 100.124.1.139 -p 6379 -a <AUTH> --hotkeys
+  ```
+- **Scale up Redis if needed (see Scaling Redis section).**
+
+#### High Memory Usage
+- **Check maxmemory-policy:**
+  ```bash
+  redis-cli -h 100.124.1.139 -p 6379 -a <AUTH> CONFIG GET maxmemory-policy
+  ```
+- **Analyze memory usage:**
+  ```bash
+  redis-cli -h 100.124.1.139 -p 6379 -a <AUTH> MEMORY STATS
+  ```
+
+#### Connection Errors
+- **Check network settings and firewall rules:**
+  ```bash
+  gcloud compute firewall-rules list --filter="name:default-allow-redis"
+  ```
+- **Verify Redis instance status:**
+  ```bash
+  gcloud redis instances describe <INSTANCE_NAME> --region=us-east1
+  ```
+- **Ensure connection limits are within allowed range.**
+
+### Additional Resources
+- **GitHub Repository:** [Insert link]
+- **Jenkins Pipeline:** [Insert details]
+- **Reference Documentation:** [Insert links]
+
